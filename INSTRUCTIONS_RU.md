@@ -45,59 +45,248 @@ npm run dev
 
 ---
 
-## 🚀 Вариант 2: Развертывание на российском сервере (VPS / VDS)
+## 🚀 Вариант 2: Развертывание на сервере Timeweb Cloud (VPS) и настройка СУБД
 
-Для надежной демонстрации работы автосалона по ссылке из РФ рекомендуется использовать VPS от российских хостинг-провайдеров (например, Reg.ru, Timeweb, Beget, RuVDS) на операционной системе **Ubuntu 20.04 / 22.04 LTS**.
+Timeweb Cloud — современный и стабильный российский облачный провайдер. Ниже описан пошаговый процесс покупки сервера, установки полноценной СУБД PostgreSQL, привязки домена и запуска приложения в продакшене.
 
-### Шаг 1: Подключение к серверу и установка Node.js
-Подключитесь к вашему VPS по SSH:
+---
+
+### Шаг 1: Создание облачного сервера на Timeweb Cloud
+
+1.  **Регистрация:** Войдите в панель [Timeweb Cloud](https://timeweb.cloud/) и зарегистрируйтесь.
+2.  **Создание сервера:** Нажмите кнопку **«Создать»** ➔ **«Облачный сервер»**.
+3.  **Выбор ОС:** Выберите чистую операционную систему **Ubuntu 22.04 LTS** (или Ubuntu 24.04).
+4.  **Выбор региона:** Выберите ближайший к вам регион (например, Москва или Санкт-Петербург) для минимального пинга.
+5.  **Конфигурация:** Для работы нашего Node.js приложения и базы данных PostgreSQL вполне достаточно базового тарифа:
+    *   **CPU:** 1 или 2 ядра.
+    *   **RAM:** 2 ГБ (рекомендуется минимум 2 ГБ для стабильной сборки фронтенда и работы PostgreSQL).
+    *   **NVMe-диск:** 20-30 ГБ.
+6.  **Сеть и IP:** Выберите публичный IPv4-адрес.
+7.  **Авторизация:** Укажите ваш SSH-ключ (рекомендуется для безопасности) или выберите авторизацию по паролю (пароль придет на почту).
+8.  **Запуск:** Нажмите **«Заказать»**. Через 1–2 минуты ваш сервер будет создан, и вы получите его внешний IP-адрес (например, `80.90.100.110`).
+
+---
+
+### Шаг 2: Подключение по SSH и базовая безопасность
+
+Откройте терминал на вашем компьютере (в Windows можно использовать Git Bash, PowerShell или PuTTY) и выполните подключение:
+
 ```bash
-ssh root@IP_адрес_вашего_сервера
+ssh root@80.90.100.110  # Замените 80.90.100.110 на реальный IP вашего сервера
 ```
 
-Обновите пакеты и установите Node.js (через NodeSource):
+#### Базовая настройка безопасности (Firewall):
+Обновите списки пакетов и установите системный брандмауэр `ufw`:
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
+sudo apt update && sudo apt upgrade -y
+sudo apt install ufw -y
 ```
 
-### Шаг 2: Клонирование и подготовка проекта
-Перенесите файлы проекта на сервер (через git или sftp в папку `/var/www/autocatalog`):
+Разрешите порты для SSH (обязательно!), веб-трафика (HTTP/HTTPS) и бэкенда:
 ```bash
-cd /var/www/autocatalog
-npm install
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 3000/tcp
+sudo ufw enable
+```
+Проверьте статус брандмауэра:
+```bash
+sudo ufw status
 ```
 
-### Шаг 3: Сборка проекта для продакшена (Production Build)
-Скомпилируйте оптимизированный фронтенд и соберите серверный TypeScript-файл в единый независимый CommonJS-бандл `dist/server.cjs` одной командой:
-```bash
-npm run build
-```
-Это позволит запустить приложение на сервере без лишней нагрузки и зависимостей разработки.
+---
 
-### Шаг 4: Настройка фонового процесса через PM2 (Рекомендуется)
-Чтобы приложение не закрывалось при выходе из консоли и автоматически перезапускалось при сбоях, установите менеджер процессов **PM2**:
+### Шаг 3: Установка Node.js, Git, Nginx и PM2
+
+Нам необходимо установить современную LTS-версию Node.js (v20), веб-сервер Nginx для проксирования запросов на домен, систему Git для клонирования кода и менеджер PM2 для безостановочной работы приложения.
+
+1.  **Установка Node.js (v20):**
+    ```bash
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    ```
+    Проверьте установку: `node -v` (должно быть 20.x) и `npm -v`.
+
+2.  **Установка Nginx и Git:**
+    ```bash
+    sudo apt install nginx git -y
+    ```
+
+3.  **Установка PM2 глобально:**
+    ```bash
+    sudo npm install -y -g pm2
+    ```
+
+---
+
+### Шаг 4: Установка и настройка полноценной базы данных (PostgreSQL)
+
+В текущей версии проект по умолчанию использует файловую NoSQL СУБД (`db.json` через класс `LocalDb` в `src/server/db.ts`). Это сделано для максимальной портативности при защите курсовой работы (работает «из коробки» без сложной настройки). 
+
+Если вы хотите развернуть **полноценную СУБД PostgreSQL** на сервере Timeweb Cloud для высоконагруженного продакшена, выполните следующие шаги:
+
+#### 1. Установка PostgreSQL на сервер:
 ```bash
-sudo npm install -y -g pm2
+sudo apt install postgresql postgresql-contrib -y
 ```
 
-Запустите собранное приложение:
+#### 2. Запуск и проверка службы:
 ```bash
-pm2 start dist/server.cjs --name "autocatalog"
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+sudo systemctl status postgresql
 ```
 
-Сохраните конфигурацию автозапуска:
+#### 3. Настройка пользователя и базы данных:
+Переключитесь под системного пользователя `postgres`:
 ```bash
-pm2 save
+sudo -i -u postgres
+```
+Запустите консоль управления СУБД:
+```bash
+psql
+```
+Создайте новую базу данных, пользователя и задайте ему надежный пароль:
+```sql
+CREATE DATABASE autoselect_db;
+CREATE USER autoselect_user WITH PASSWORD 'SuperSecurePassword123!';
+GRANT ALL PRIVILEGES ON DATABASE autoselect_db TO autoselect_user;
+\q
+```
+Вернитесь в обычную консоль root:
+```bash
+exit
+```
+
+#### 4. Архитектурная интеграция с приложением:
+В бэкенде проекта (`src/server/db.ts`) вы можете легко переписать методы чтения/записи для работы с PostgreSQL. Для этого на сервере установите клиент PostgreSQL:
+```bash
+npm install pg @types/pg
+```
+И настройте подключение в коде с помощью пула соединений (`pg.Pool`), используя переменные окружения, которые вы укажете в вашем файле `.env`:
+```typescript
+import pg from 'pg';
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://autoselect_user:SuperSecurePassword123!@localhost:5432/autoselect_db'
+});
+```
+
+---
+
+### Шаг 5: Перенос файлов проекта и сборка (Build)
+
+1.  **Клонирование репозитория** (или перенос архива через SFTP в директорию `/var/www`):
+    ```bash
+    cd /var/www
+    git clone https://github.com/ваш_логин/autocatalog.git autocatalog
+    cd autocatalog
+    ```
+
+2.  **Установка зависимостей:**
+    ```bash
+    npm install
+    ```
+
+3.  **Настройка переменных окружения:**
+    Создайте рабочий `.env` файл на сервере:
+    ```bash
+    nano .env
+    ```
+    Вставьте конфигурацию вашего бэкенда:
+    ```env
+    PORT=3000
+    NODE_ENV=production
+    GEMINI_API_KEY="ВАШ_КЛЮЧ_GEMINI"
+    # Если используете PostgreSQL:
+    DATABASE_URL="postgresql://autoselect_user:SuperSecurePassword123!@localhost:5432/autoselect_db"
+    ```
+    *(Нажмите `Ctrl+O`, `Enter`, `Ctrl+X` для сохранения файла в nano).*
+
+4.  **Компиляция проекта:**
+    Скомпилируйте оптимизированный статический фронтенд и бэкенд в единый CommonJS-бандл:
+    ```bash
+    npm run build
+    ```
+    Эта команда создаст папку `dist` с готовым высокопроизводительным веб-приложением.
+
+---
+
+### Шаг 6: Запуск приложения через PM2 в вечном режиме
+
+Для того чтобы приложение работало непрерывно, обрабатывало запросы 24/7 и автоматически перезапускалось при непредвиденных сбоях ОС, используйте PM2:
+
+```bash
+pm2 start dist/server.cjs --name "autoselect-portal"
+```
+
+#### Полезные команды PM2:
+*   Просмотр списка запущенных процессов: `pm2 list`
+*   Чтение логов в реальном времени (ошибки, консоль): `pm2 logs autoselect-portal`
+*   Перезапуск приложения: `pm2 restart autoselect-portal`
+*   Остановка: `pm2 stop autoselect-portal`
+
+#### Настройка автозапуска при перезагрузке самого сервера:
+```bash
 pm2 startup
 ```
-
-### Шаг 5: Открытие портов в брандмауэре (Firewall)
-Разрешите входящий трафик на порт `3000` (на котором работает сервер):
+*(Скопируйте и выполните команду, которую сгенерирует PM2 в выводе).*
+Затем сохраните текущий список процессов:
 ```bash
-sudo ufw allow 3000/tcp
+pm2 save
 ```
-Теперь ваш сайт доступен в сети по адресу: `http://IP_адрес_сервера:3000`
+
+---
+
+### Шаг 7: Настройка Nginx в качестве Reverse Proxy и SSL (HTTPS)
+
+Чтобы пользователи заходили на ваш сайт по обычному домену (например, `autoselect-showroom.ru`) без указания порта `:3000`, настроим проксирование через Nginx.
+
+1.  **Создание конфигурационного файла Nginx:**
+    ```bash
+    sudo nano /etc/nginx/sites-available/autoselect
+    ```
+    Вставьте следующую конфигурацию (замените `autoselect-showroom.ru` на ваш домен или IP-адрес):
+    ```nginx
+    server {
+        listen 80;
+        server_name autoselect-showroom.ru www.autoselect-showroom.ru;
+
+        location / {
+            proxy_pass http://127.0.0.1:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+    ```
+
+2.  **Активация конфигурации и перезапуск Nginx:**
+    ```bash
+    sudo ln -s /etc/nginx/sites-available/autoselect /etc/nginx/sites-enabled/
+    # Проверка синтаксиса конфигурации Nginx
+    sudo nginx -t
+    # Перезапуск службы
+    sudo systemctl restart nginx
+    ```
+
+3.  **Получение бесплатного SSL-сертификата Let's Encrypt (HTTPS):**
+    Установите Certbot для автоматического выпуска и продления SSL:
+    ```bash
+    sudo apt install certbot python3-certbot-nginx -y
+    ```
+    Запустите Certbot для вашего домена:
+    ```bash
+    sudo certbot --nginx -d autoselect-showroom.ru -d www.autoselect-showroom.ru
+    ```
+    Certbot сам задаст вопросы (введите ваш Email и согласитесь с условиями), автоматически изменит конфигурацию Nginx под HTTPS и настроит автопродление сертификата.
+
+Теперь ваш портал полностью защищен зеленым замочком и доступен по адресу `https://autoselect-showroom.ru`!
 
 ---
 

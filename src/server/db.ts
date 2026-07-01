@@ -1,7 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import pg from 'pg';
 import { Car, User, Booking, LoanRequest, Favorite } from '../types.js';
 
+const { Pool } = pg;
 const DB_FILE = path.join(process.cwd(), 'db.json');
 
 interface Schema {
@@ -272,7 +274,29 @@ const initialUsers: User[] = [
   }
 ];
 
-export class LocalDb {
+export interface IDatabase {
+  getCars(): Promise<Car[]>;
+  getCarById(id: string): Promise<Car | undefined>;
+  addCar(car: Omit<Car, 'id' | 'createdAt'>): Promise<Car>;
+  updateCar(id: string, updatedCar: Partial<Car>): Promise<Car | undefined>;
+  deleteCar(id: string): Promise<boolean>;
+  getUsers(): Promise<User[]>;
+  getUserById(id: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  addUser(user: Omit<User, 'id' | 'createdAt'>): Promise<User>;
+  getBookings(): Promise<Booking[]>;
+  getBookingsByUserId(userId: string): Promise<Booking[]>;
+  addBooking(booking: Omit<Booking, 'id' | 'createdAt' | 'status'>): Promise<Booking>;
+  updateBookingStatus(id: string, status: Booking['status']): Promise<Booking | undefined>;
+  getLoanRequests(): Promise<LoanRequest[]>;
+  getLoanRequestsByUserId(userId: string): Promise<LoanRequest[]>;
+  addLoanRequest(req: Omit<LoanRequest, 'id' | 'createdAt' | 'status'>): Promise<LoanRequest>;
+  updateLoanRequestStatus(id: string, status: LoanRequest['status']): Promise<LoanRequest | undefined>;
+  getFavoritesByUserId(userId: string): Promise<string[]>;
+  toggleFavorite(userId: string, carId: string): Promise<boolean>;
+}
+
+export class LocalDb implements IDatabase {
   private data: Schema;
 
   constructor() {
@@ -291,7 +315,6 @@ export class LocalDb {
       if (fs.existsSync(DB_FILE)) {
         const fileContent = fs.readFileSync(DB_FILE, 'utf-8');
         this.data = JSON.parse(fileContent);
-        // Ensure lists exist
         this.data.cars = this.data.cars || [];
         this.data.users = this.data.users || [];
         this.data.bookings = this.data.bookings || [];
@@ -329,17 +352,17 @@ export class LocalDb {
   }
 
   // Cars CRUD
-  getCars(): Car[] {
+  async getCars(): Promise<Car[]> {
     this.load();
     return this.data.cars;
   }
 
-  getCarById(id: string): Car | undefined {
+  async getCarById(id: string): Promise<Car | undefined> {
     this.load();
     return this.data.cars.find(c => c.id === id);
   }
 
-  addCar(car: Omit<Car, 'id' | 'createdAt'>): Car {
+  async addCar(car: Omit<Car, 'id' | 'createdAt'>): Promise<Car> {
     this.load();
     const newCar: Car = {
       ...car,
@@ -351,7 +374,7 @@ export class LocalDb {
     return newCar;
   }
 
-  updateCar(id: string, updatedCar: Partial<Car>): Car | undefined {
+  async updateCar(id: string, updatedCar: Partial<Car>): Promise<Car | undefined> {
     this.load();
     const index = this.data.cars.findIndex(c => c.id === id);
     if (index === -1) return undefined;
@@ -359,40 +382,39 @@ export class LocalDb {
     this.data.cars[index] = {
       ...this.data.cars[index],
       ...updatedCar,
-      id // prevent id changing
+      id
     };
     this.save();
     return this.data.cars[index];
   }
 
-  deleteCar(id: string): boolean {
+  async deleteCar(id: string): Promise<boolean> {
     this.load();
     const initialLen = this.data.cars.length;
     this.data.cars = this.data.cars.filter(c => c.id !== id);
     if (this.data.cars.length === initialLen) return false;
-    // clean up favorites and bookings/loan requests related to this car
     this.data.favorites = this.data.favorites.filter(f => f.carId !== id);
     this.save();
     return true;
   }
 
   // Users CRUD
-  getUsers(): User[] {
+  async getUsers(): Promise<User[]> {
     this.load();
     return this.data.users;
   }
 
-  getUserById(id: string): User | undefined {
+  async getUserById(id: string): Promise<User | undefined> {
     this.load();
     return this.data.users.find(u => u.id === id);
   }
 
-  getUserByEmail(email: string): User | undefined {
+  async getUserByEmail(email: string): Promise<User | undefined> {
     this.load();
     return this.data.users.find(u => u.email.toLowerCase() === email.toLowerCase());
   }
 
-  addUser(user: Omit<User, 'id' | 'createdAt'>): User {
+  async addUser(user: Omit<User, 'id' | 'createdAt'>): Promise<User> {
     this.load();
     const newUser: User = {
       ...user,
@@ -405,17 +427,17 @@ export class LocalDb {
   }
 
   // Bookings
-  getBookings(): Booking[] {
+  async getBookings(): Promise<Booking[]> {
     this.load();
     return this.data.bookings;
   }
 
-  getBookingsByUserId(userId: string): Booking[] {
+  async getBookingsByUserId(userId: string): Promise<Booking[]> {
     this.load();
     return this.data.bookings.filter(b => b.userId === userId);
   }
 
-  addBooking(booking: Omit<Booking, 'id' | 'createdAt' | 'status'>): Booking {
+  async addBooking(booking: Omit<Booking, 'id' | 'createdAt' | 'status'>): Promise<Booking> {
     this.load();
     const newBooking: Booking = {
       ...booking,
@@ -428,7 +450,7 @@ export class LocalDb {
     return newBooking;
   }
 
-  updateBookingStatus(id: string, status: Booking['status']): Booking | undefined {
+  async updateBookingStatus(id: string, status: Booking['status']): Promise<Booking | undefined> {
     this.load();
     const booking = this.data.bookings.find(b => b.id === id);
     if (!booking) return undefined;
@@ -438,17 +460,17 @@ export class LocalDb {
   }
 
   // Loan Requests
-  getLoanRequests(): LoanRequest[] {
+  async getLoanRequests(): Promise<LoanRequest[]> {
     this.load();
     return this.data.loanRequests;
   }
 
-  getLoanRequestsByUserId(userId: string): LoanRequest[] {
+  async getLoanRequestsByUserId(userId: string): Promise<LoanRequest[]> {
     this.load();
     return this.data.loanRequests.filter(l => l.userId === userId);
   }
 
-  addLoanRequest(req: Omit<LoanRequest, 'id' | 'createdAt' | 'status'>): LoanRequest {
+  async addLoanRequest(req: Omit<LoanRequest, 'id' | 'createdAt' | 'status'>): Promise<LoanRequest> {
     this.load();
     const newReq: LoanRequest = {
       ...req,
@@ -461,7 +483,7 @@ export class LocalDb {
     return newReq;
   }
 
-  updateLoanRequestStatus(id: string, status: LoanRequest['status']): LoanRequest | undefined {
+  async updateLoanRequestStatus(id: string, status: LoanRequest['status']): Promise<LoanRequest | undefined> {
     this.load();
     const request = this.data.loanRequests.find(l => l.id === id);
     if (!request) return undefined;
@@ -471,24 +493,469 @@ export class LocalDb {
   }
 
   // Favorites
-  getFavoritesByUserId(userId: string): string[] {
+  async getFavoritesByUserId(userId: string): Promise<string[]> {
     this.load();
     return this.data.favorites.filter(f => f.userId === userId).map(f => f.carId);
   }
 
-  toggleFavorite(userId: string, carId: string): boolean {
+  async toggleFavorite(userId: string, carId: string): Promise<boolean> {
     this.load();
     const index = this.data.favorites.findIndex(f => f.userId === userId && f.carId === carId);
     if (index === -1) {
       this.data.favorites.push({ userId, carId });
       this.save();
-      return true; // Added
+      return true;
     } else {
       this.data.favorites.splice(index, 1);
       this.save();
-      return false; // Removed
+      return false;
     }
   }
 }
 
-export const db = new LocalDb();
+export class PgDb implements IDatabase {
+  private pool: pg.Pool;
+  private initialized = false;
+
+  constructor(connectionString: string) {
+    this.pool = new Pool({
+      connectionString,
+      ssl: connectionString.includes('localhost') ? false : { rejectUnauthorized: false }
+    });
+  }
+
+  async init() {
+    if (this.initialized) return;
+    try {
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id VARCHAR(100) PRIMARY KEY,
+          email VARCHAR(150) UNIQUE NOT NULL,
+          name VARCHAR(150) NOT NULL,
+          role VARCHAR(50) NOT NULL DEFAULT 'user',
+          created_at VARCHAR(100) NOT NULL
+        )
+      `);
+
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS cars (
+          id VARCHAR(100) PRIMARY KEY,
+          brand VARCHAR(100) NOT NULL,
+          model VARCHAR(100) NOT NULL,
+          year INT NOT NULL,
+          price BIGINT NOT NULL,
+          mileage INT NOT NULL,
+          engine_volume VARCHAR(100) NOT NULL,
+          engine_power INT NOT NULL,
+          fuel_type VARCHAR(100) NOT NULL,
+          transmission VARCHAR(100) NOT NULL,
+          drive_type VARCHAR(100) NOT NULL,
+          body_style VARCHAR(100) NOT NULL,
+          color VARCHAR(100) NOT NULL,
+          condition VARCHAR(100) NOT NULL,
+          description TEXT NOT NULL,
+          images TEXT NOT NULL,
+          specs TEXT NOT NULL,
+          created_at VARCHAR(100) NOT NULL
+        )
+      `);
+
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS bookings (
+          id VARCHAR(100) PRIMARY KEY,
+          user_id VARCHAR(100) NOT NULL,
+          user_name VARCHAR(150) NOT NULL,
+          user_email VARCHAR(150) NOT NULL,
+          car_id VARCHAR(100) NOT NULL,
+          car_brand VARCHAR(100) NOT NULL,
+          car_model VARCHAR(100) NOT NULL,
+          date VARCHAR(100) NOT NULL,
+          time_slot VARCHAR(100) NOT NULL,
+          status VARCHAR(100) NOT NULL DEFAULT 'Pending',
+          created_at VARCHAR(100) NOT NULL
+        )
+      `);
+
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS loan_requests (
+          id VARCHAR(100) PRIMARY KEY,
+          user_id VARCHAR(100) NOT NULL,
+          user_name VARCHAR(150) NOT NULL,
+          user_email VARCHAR(150) NOT NULL,
+          car_id VARCHAR(100) NOT NULL,
+          car_brand VARCHAR(100) NOT NULL,
+          car_model VARCHAR(100) NOT NULL,
+          car_price BIGINT NOT NULL,
+          down_payment BIGINT NOT NULL,
+          loan_term INT NOT NULL,
+          interest_rate NUMERIC NOT NULL,
+          monthly_payment BIGINT NOT NULL,
+          status VARCHAR(100) NOT NULL DEFAULT 'Pending',
+          created_at VARCHAR(100) NOT NULL
+        )
+      `);
+
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS favorites (
+          user_id VARCHAR(100) NOT NULL,
+          car_id VARCHAR(100) NOT NULL,
+          PRIMARY KEY (user_id, car_id)
+        )
+      `);
+
+      // Seed users
+      const usersCheck = await this.pool.query('SELECT COUNT(*) FROM users');
+      if (parseInt(usersCheck.rows[0].count, 10) === 0) {
+        console.log('Seeding initial users into PostgreSQL...');
+        for (const u of initialUsers) {
+          await this.pool.query(
+            'INSERT INTO users (id, email, name, role, created_at) VALUES ($1, $2, $3, $4, $5)',
+            [u.id, u.email, u.name, u.role, u.createdAt]
+          );
+        }
+      }
+
+      // Seed cars
+      const carsCheck = await this.pool.query('SELECT COUNT(*) FROM cars');
+      if (parseInt(carsCheck.rows[0].count, 10) === 0) {
+        console.log('Seeding initial cars into PostgreSQL...');
+        for (const c of initialCars) {
+          await this.pool.query(
+            `INSERT INTO cars (id, brand, model, year, price, mileage, engine_volume, engine_power, fuel_type, transmission, drive_type, body_style, color, condition, description, images, specs, created_at) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+            [
+              c.id, c.brand, c.model, c.year, c.price, c.mileage, 
+              c.engineVolume, c.enginePower, c.fuelType, c.transmission, 
+              c.driveType, c.bodyStyle, c.color, c.condition, c.description, 
+              JSON.stringify(c.images), JSON.stringify(c.specs), c.createdAt
+            ]
+          );
+        }
+      }
+
+      this.initialized = true;
+      console.log('PostgreSQL Database successfully initialized and seeded.');
+    } catch (err) {
+      console.error('Failed to initialize PostgreSQL tables:', err);
+    }
+  }
+
+  async getCars(): Promise<Car[]> {
+    await this.init();
+    const res = await this.pool.query('SELECT * FROM cars ORDER BY created_at DESC');
+    return res.rows.map(row => ({
+      id: row.id,
+      brand: row.brand,
+      model: row.model,
+      year: row.year,
+      price: Number(row.price),
+      mileage: row.mileage,
+      engineVolume: row.engine_volume,
+      enginePower: row.engine_power,
+      fuelType: row.fuel_type,
+      transmission: row.transmission,
+      driveType: row.drive_type,
+      bodyStyle: row.body_style,
+      color: row.color,
+      condition: row.condition,
+      description: row.description,
+      images: JSON.parse(row.images),
+      specs: JSON.parse(row.specs),
+      createdAt: row.created_at
+    }));
+  }
+
+  async getCarById(id: string): Promise<Car | undefined> {
+    await this.init();
+    const res = await this.pool.query('SELECT * FROM cars WHERE id = $1', [id]);
+    if (res.rows.length === 0) return undefined;
+    const row = res.rows[0];
+    return {
+      id: row.id,
+      brand: row.brand,
+      model: row.model,
+      year: row.year,
+      price: Number(row.price),
+      mileage: row.mileage,
+      engineVolume: row.engine_volume,
+      enginePower: row.engine_power,
+      fuelType: row.fuel_type,
+      transmission: row.transmission,
+      driveType: row.drive_type,
+      bodyStyle: row.body_style,
+      color: row.color,
+      condition: row.condition,
+      description: row.description,
+      images: JSON.parse(row.images),
+      specs: JSON.parse(row.specs),
+      createdAt: row.created_at
+    };
+  }
+
+  async addCar(car: Omit<Car, 'id' | 'createdAt'>): Promise<Car> {
+    await this.init();
+    const id = `car-${Date.now()}`;
+    const createdAt = new Date().toISOString();
+    await this.pool.query(
+      `INSERT INTO cars (id, brand, model, year, price, mileage, engine_volume, engine_power, fuel_type, transmission, drive_type, body_style, color, condition, description, images, specs, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+      [
+        id, car.brand, car.model, car.year, car.price, car.mileage,
+        car.engineVolume, car.enginePower, car.fuelType, car.transmission,
+        car.driveType, car.bodyStyle, car.color, car.condition, car.description,
+        JSON.stringify(car.images), JSON.stringify(car.specs), createdAt
+      ]
+    );
+    return { ...car, id, createdAt };
+  }
+
+  async updateCar(id: string, updatedCar: Partial<Car>): Promise<Car | undefined> {
+    await this.init();
+    const current = await this.getCarById(id);
+    if (!current) return undefined;
+
+    const merged = { ...current, ...updatedCar };
+    await this.pool.query(
+      `UPDATE cars SET brand=$1, model=$2, year=$3, price=$4, mileage=$5, engine_volume=$6, engine_power=$7, fuel_type=$8, transmission=$9, drive_type=$10, body_style=$11, color=$12, condition=$13, description=$14, images=$15, specs=$16 WHERE id=$17`,
+      [
+        merged.brand, merged.model, merged.year, merged.price, merged.mileage,
+        merged.engineVolume, merged.enginePower, merged.fuelType, merged.transmission,
+        merged.driveType, merged.bodyStyle, merged.color, merged.condition, merged.description,
+        JSON.stringify(merged.images), JSON.stringify(merged.specs), id
+      ]
+    );
+    return merged;
+  }
+
+  async deleteCar(id: string): Promise<boolean> {
+    await this.init();
+    const res = await this.pool.query('DELETE FROM cars WHERE id = $1', [id]);
+    await this.pool.query('DELETE FROM favorites WHERE car_id = $1', [id]);
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  async getUsers(): Promise<User[]> {
+    await this.init();
+    const res = await this.pool.query('SELECT * FROM users ORDER BY created_at DESC');
+    return res.rows.map(row => ({
+      id: row.id,
+      email: row.email,
+      name: row.name,
+      role: row.role as 'user' | 'admin',
+      createdAt: row.created_at
+    }));
+  }
+
+  async getUserById(id: string): Promise<User | undefined> {
+    await this.init();
+    const res = await this.pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    if (res.rows.length === 0) return undefined;
+    const row = res.rows[0];
+    return {
+      id: row.id,
+      email: row.email,
+      name: row.name,
+      role: row.role as 'user' | 'admin',
+      createdAt: row.created_at
+    };
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    await this.init();
+    const res = await this.pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
+    if (res.rows.length === 0) return undefined;
+    const row = res.rows[0];
+    return {
+      id: row.id,
+      email: row.email,
+      name: row.name,
+      role: row.role as 'user' | 'admin',
+      createdAt: row.created_at
+    };
+  }
+
+  async addUser(user: Omit<User, 'id' | 'createdAt'>): Promise<User> {
+    await this.init();
+    const id = `user-${Date.now()}`;
+    const createdAt = new Date().toISOString();
+    await this.pool.query(
+      'INSERT INTO users (id, email, name, role, created_at) VALUES ($1, $2, $3, $4, $5)',
+      [id, user.email, user.name, user.role, createdAt]
+    );
+    return { ...user, id, createdAt };
+  }
+
+  async getBookings(): Promise<Booking[]> {
+    await this.init();
+    const res = await this.pool.query('SELECT * FROM bookings ORDER BY created_at DESC');
+    return res.rows.map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      userName: row.user_name,
+      userEmail: row.user_email,
+      carId: row.car_id,
+      carBrand: row.car_brand,
+      carModel: row.car_model,
+      date: row.date,
+      timeSlot: row.time_slot,
+      status: row.status as Booking['status'],
+      createdAt: row.created_at
+    }));
+  }
+
+  async getBookingsByUserId(userId: string): Promise<Booking[]> {
+    await this.init();
+    const res = await this.pool.query('SELECT * FROM bookings WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
+    return res.rows.map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      userName: row.user_name,
+      userEmail: row.user_email,
+      carId: row.car_id,
+      carBrand: row.car_brand,
+      carModel: row.car_model,
+      date: row.date,
+      timeSlot: row.time_slot,
+      status: row.status as Booking['status'],
+      createdAt: row.created_at
+    }));
+  }
+
+  async addBooking(booking: Omit<Booking, 'id' | 'createdAt' | 'status'>): Promise<Booking> {
+    await this.init();
+    const id = `booking-${Date.now()}`;
+    const status = 'Pending';
+    const createdAt = new Date().toISOString();
+    await this.pool.query(
+      `INSERT INTO bookings (id, user_id, user_name, user_email, car_id, car_brand, car_model, date, time_slot, status, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        id, booking.userId, booking.userName, booking.userEmail, booking.carId,
+        booking.carBrand, booking.carModel, booking.date, booking.timeSlot, status, createdAt
+      ]
+    );
+    return { ...booking, id, status, createdAt };
+  }
+
+  async updateBookingStatus(id: string, status: Booking['status']): Promise<Booking | undefined> {
+    await this.init();
+    const res = await this.pool.query('UPDATE bookings SET status = $1 WHERE id = $2 RETURNING *', [status, id]);
+    if (res.rows.length === 0) return undefined;
+    const row = res.rows[0];
+    return {
+      id: row.id,
+      userId: row.user_id,
+      userName: row.user_name,
+      userEmail: row.user_email,
+      carId: row.car_id,
+      carBrand: row.car_brand,
+      carModel: row.car_model,
+      date: row.date,
+      timeSlot: row.time_slot,
+      status: row.status as Booking['status'],
+      createdAt: row.created_at
+    };
+  }
+
+  async getLoanRequests(): Promise<LoanRequest[]> {
+    await this.init();
+    const res = await this.pool.query('SELECT * FROM loan_requests ORDER BY created_at DESC');
+    return res.rows.map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      userName: row.user_name,
+      userEmail: row.user_email,
+      carId: row.car_id,
+      carBrand: row.car_brand,
+      carModel: row.car_model,
+      carPrice: Number(row.car_price),
+      downPayment: Number(row.down_payment),
+      loanTerm: row.loan_term,
+      interestRate: Number(row.interest_rate),
+      monthlyPayment: Number(row.monthly_payment),
+      status: row.status as LoanRequest['status'],
+      createdAt: row.created_at
+    }));
+  }
+
+  async getLoanRequestsByUserId(userId: string): Promise<LoanRequest[]> {
+    await this.init();
+    const res = await this.pool.query('SELECT * FROM loan_requests WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
+    return res.rows.map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      userName: row.user_name,
+      userEmail: row.user_email,
+      carId: row.car_id,
+      carBrand: row.car_brand,
+      carModel: row.car_model,
+      carPrice: Number(row.car_price),
+      downPayment: Number(row.down_payment),
+      loanTerm: row.loan_term,
+      interestRate: Number(row.interest_rate),
+      monthlyPayment: Number(row.monthly_payment),
+      status: row.status as LoanRequest['status'],
+      createdAt: row.created_at
+    }));
+  }
+
+  async addLoanRequest(req: Omit<LoanRequest, 'id' | 'createdAt' | 'status'>): Promise<LoanRequest> {
+    await this.init();
+    const id = `loan-${Date.now()}`;
+    const status = 'Pending';
+    const createdAt = new Date().toISOString();
+    await this.pool.query(
+      `INSERT INTO loan_requests (id, user_id, user_name, user_email, car_id, car_brand, car_model, car_price, down_payment, loan_term, interest_rate, monthly_payment, status, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      [
+        id, req.userId, req.userName, req.userEmail, req.carId, req.carBrand, req.carModel,
+        req.carPrice, req.downPayment, req.loanTerm, req.interestRate, req.monthlyPayment, status, createdAt
+      ]
+    );
+    return { ...req, id, status, createdAt };
+  }
+
+  async updateLoanRequestStatus(id: string, status: LoanRequest['status']): Promise<LoanRequest | undefined> {
+    await this.init();
+    const res = await this.pool.query('UPDATE loan_requests SET status = $1 WHERE id = $2 RETURNING *', [status, id]);
+    if (res.rows.length === 0) return undefined;
+    const row = res.rows[0];
+    return {
+      id: row.id,
+      userId: row.user_id,
+      userName: row.user_name,
+      userEmail: row.user_email,
+      carId: row.car_id,
+      carBrand: row.car_brand,
+      carModel: row.car_model,
+      carPrice: Number(row.car_price),
+      downPayment: Number(row.down_payment),
+      loanTerm: row.loan_term,
+      interestRate: Number(row.interest_rate),
+      monthlyPayment: Number(row.monthly_payment),
+      status: row.status as LoanRequest['status'],
+      createdAt: row.created_at
+    };
+  }
+
+  async getFavoritesByUserId(userId: string): Promise<string[]> {
+    await this.init();
+    const res = await this.pool.query('SELECT car_id FROM favorites WHERE user_id = $1', [userId]);
+    return res.rows.map(row => row.car_id);
+  }
+
+  async toggleFavorite(userId: string, carId: string): Promise<boolean> {
+    await this.init();
+    const check = await this.pool.query('SELECT 1 FROM favorites WHERE user_id = $1 AND car_id = $2', [userId, carId]);
+    if (check.rows.length === 0) {
+      await this.pool.query('INSERT INTO favorites (user_id, car_id) VALUES ($1, $2)', [userId, carId]);
+      return true;
+    } else {
+      await this.pool.query('DELETE FROM favorites WHERE user_id = $1 AND car_id = $2', [userId, carId]);
+      return false;
+    }
+  }
+}
+
+const databaseUrl = process.env.DATABASE_URL;
+export const db: IDatabase = databaseUrl ? new PgDb(databaseUrl) : new LocalDb();
