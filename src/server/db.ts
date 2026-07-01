@@ -1,7 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import pg from 'pg';
+import dotenv from 'dotenv';
 import { Car, User, Booking, LoanRequest, Favorite } from '../types.js';
+
+dotenv.config();
 
 const { Pool } = pg;
 const DB_FILE = path.join(process.cwd(), 'db.json');
