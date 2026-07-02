@@ -62,8 +62,3 @@ export interface Favorite {
   userId: string;
   carId: string;
 }
-
-export interface ChatMessage {
-  role: 'user' | 'model';
-  parts: { text: string }[];
-}

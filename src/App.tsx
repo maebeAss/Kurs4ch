@@ -11,7 +11,7 @@ import CarComparison from './components/CarComparison.tsx';
 import CreditCalculator from './components/CreditCalculator.tsx';
 import MyGarage from './components/MyGarage.tsx';
 import AdminPanel from './components/AdminPanel.tsx';
-import { Car, User, Booking, LoanRequest, ChatMessage } from './types.ts';
+import { Car, User, Booking, LoanRequest } from './types.ts';
 import { Shield, Sparkles, X, Mail, UserIcon, Info, HelpCircle } from 'lucide-react';
 
 export default function App() {
@@ -297,25 +297,6 @@ export default function App() {
     } catch (e) {
       console.error('Error submitting loan request', e);
       return false;
-    }
-  };
-
-  // AI chat send
-  const handleSendAIChat = async (chatMessages: ChatMessage[]): Promise<string> => {
-    try {
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: chatMessages })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.text;
-      }
-      throw new Error('Chat API Error');
-    } catch (e) {
-      console.error('Chat error', e);
-      return 'Извините, произошла техническая ошибка при ответе. Пожалуйста, попробуйте еще раз.';
     }
   };
 

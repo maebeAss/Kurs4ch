@@ -1,8 +1,6 @@
 {
-  "name": "AutoCatalog",
-  "description": "Приложение для автосалона с каталогом автомобилей, расширенной фильтрацией, сравнением моделей, кредитным калькулятором и AI-ассистентом.",
+  "name": "AutoSelect",
+  "description": "Premium car catalog with test-drive booking, compare engine, and auto loan calculator.",
   "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
